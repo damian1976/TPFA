@@ -146,7 +146,7 @@ def getSolution(self, comm=None):
             #decide = petsc4py.PETSc.DECIDE
             rank = comm.rank
             #size = comm.size
-            if rank == 0:
+            if (rank == 0):
                 print("USING PETSC SOLVER LIB")
                 print("Loading matrix {0}".format(self.afilename))
             viewer = petsc4py.PETSc.Viewer().createBinary(self.afilename, 'r')
