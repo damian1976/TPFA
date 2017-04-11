@@ -25,13 +25,13 @@ from scipy.sparse.linalg import spsolve
 from scipy.sparse.linalg import gmres
 import numpy.ctypeslib as npct
 from ctypes import c_int, c_double
-#import matplotlib.pyplot as plt
-#from mpl_toolkits.mplot3d import Axes3D
-#from matplotlib import cm
-#from mpl_toolkits.axes_grid1 import make_axes_locatable
-#from matplotlib.colors import LogNorm
-#from matplotlib.ticker import MultipleLocator
-#from matplotlib import ticker
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.colors import LogNorm
+from matplotlib.ticker import MultipleLocator
+from matplotlib import ticker
 from petsc4py import PETSc
 import petsc4py
 from mpi4py import MPI
@@ -49,24 +49,19 @@ from mpi4py import MPI
 """
 
 __author__ = 'wendy'
+__coauthor__ = 'damian'
 
 # MiniApp assumes the following variables have been given:
 # Length of domain, H
 # No. of cells in x, Nx
 # No. of cells in y, Ny
 # No. of cells in z, Nz
-# num = std deviation in the lognormal random number generation- should vary between 1 and 3 (mean is set to 0) 
-# atol=absolute tolerance, rtol=relative tolerance, divtol=diversion tolerance, maxiter=max number of iterations
-# should vary between: abs tol=1e-15; rel tol=1e-06; div tol=1e+08 and abs tol=1e-17; rel tol=1e-08; div tol=1e+10
-# Linear solve library: MKL, PETSC, PYGMRES, KINSOL, PARALUTION, DEFAULT
+# Linear solve library: MKL, PETSc
 # Plots drawn: Y (yes), N (no)
-# Run in test mode: run with homog matrix and 5x5x5 with cell width of 1.0 to compare against p calculated in MATLAB
-# Eg: python FD_3D_TwoPointFluxApproximation_MiniApp.py -t 'DEFAULT'
-# OPTIONAL: Read in K and B matrices files, type of matrix file (binary (BIN), crs(CSR)), name of K file, name of B file
-# OPTIONAL: Write out K and B matrices, type of file (binary(BIN), crs(CSR)) file, prefix
-# OPTIONAL: Read in A and B binary PETSc matrices files, name of A file, name of B file
-# OPTIONAL: Write out A and B matrices, type of file (binary(BIN), crs(CSR)) file, prefix
-# Eg: python FD_3D_TwoPointFluxApproximation_MiniApp.py -s 1.0 20 20 20 5 'DEFAULT' 'Y' -r 'BIN' 'Afile.mtx' 'Bfile.mtx' -w 'CRS' 'Afile.mtx' 'Bfile.mtx'
+# Run in test mode: run with homog matrix and 5x5x5 with cell width
+# of 1.0 to compare against p calculated in MATLAB
+# Eg: python FD_3D_TwoPointFluxApproximation_MiniApp.py \
+# 1.0 20 20 20 5 'DEFAULT' 'Y'
 
 # This class provides the switch functionality we want.
 # You only need to look at this if you want to know how this works.
@@ -121,16 +116,25 @@ class read_write_matrices():
                             indices=csr_m.indices,
                             data=csr_m.data)
 
-    def load_sparse_csr_bin(self, filename, shape):
+    def load_sparse_csr_bin(self, filename, shape=None):
     #has to be .npz
         arrays = np.load(filename)
         indptr = arrays['indptr']
         indices = arrays['indices']
         data = arrays['data']
-        csr_m = sp.sparse.csr_matrix((data, indices, indptr), shape)
+        if (shape is None):
+            csr_m = sp.sparse.csr_matrix((data, indices, indptr))
+        else:
+            csr_m = sp.sparse.csr_matrix((data, indices, indptr), shape)
         return csr_m
 
-def getSolution(self, comm="None"):
+
+def getSolution(self, comm=None):
+
+    #, N=100, afilename='matrix-A.dat',
+    #            bfilename='vector-b.dat',
+    #            xfilename='vector-x.dat', atol=1e-15,
+    #            rtol=1e-06, divtol=1e+05, maxiter=100000):
     # 50x50x50: abs tol=1e-15; rel tol=1e-06; div tol=1e+08
     # PSEUDOCODE: need to put in proper calls to libs using
     # Python bindings or SWIG etc:
@@ -142,23 +146,20 @@ def getSolution(self, comm="None"):
             #decide = petsc4py.PETSc.DECIDE
             rank = comm.rank
             #size = comm.size
-            if (rank == 0):
+            if rank == 0:
                 print("USING PETSC SOLVER LIB")
-            if(self.isPETScRead == 'True'):
-                if (rank == 0):
-                    print("Loading matrix {0}".format(self.ARfilename))
-                viewer = petsc4py.PETSc.Viewer().createBinary(self.ARfilename, 'r')
-                A = petsc4py.PETSc.Mat().load(viewer)
-                if (rank == 0):
-                    cols, rows = A.getSize()
-                    print("Size={0}x{1}".format(rows, cols))
-                    print("Loading vector {0}".format(self.BRfilename))
-            
-                viewer = petsc4py.PETSc.Viewer().createBinary(BRfilename, 'r')
-                b = petsc4py.PETSc.Vec().load(viewer)
-            else:
-                A = PETSc.Mat().createAIJ(size=self.A.shape,csr=(self.A.indptr, self.A.indices, self.A.data),comm=PETSc.COMM_SELF)
-                b = PETSc.Vec().createWithArray(self.q, comm=PETSc.COMM_SELF)
+                print("Loading matrix {0}".format(self.afilename))
+            viewer = petsc4py.PETSc.Viewer().createBinary(self.afilename, 'r')
+            A = petsc4py.PETSc.Mat().load(viewer)
+            #A.setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
+            # gpu_handle = v.getCUDAHandle()
+            cols, rows = A.getSize()
+            if (rank == 0):
+                print("Size={0}x{1}".format(rows, cols))
+                print("Loading vector {0}".format(self.bfilename))
+            viewer = petsc4py.PETSc.Viewer().createBinary(self.bfilename, 'r')
+            b = petsc4py.PETSc.Vec().load(viewer)
+            #b.setType(PETSc.Vec.Type.MPICUSP)
             if rank == 0:
                 print("Creating vector x...")
             x = b.duplicate()
@@ -187,11 +188,11 @@ def getSolution(self, comm="None"):
                 if (rank == 0):
                     print("solve")
                 ksp.solve(b, x)
-                if (self.isPETScWrite == 'True'):
-                    if (rank == 0):
-                        print("Saving X {0}".format(self.XWfilename))
-                    viewer = petsc4py.PETSc.Viewer().createBinary(self.XWfilename, 'w')
-                    viewer(x)
+                if (rank == 0):
+                    print("Saving results {0}".format(self.xfilename))
+                viewer = petsc4py.PETSc.Viewer().\
+                    createBinary(self.xfilename, 'w')
+                viewer(x)
                 if (rank == 0):
                     print("po solve")
                 p = x.getArray()
@@ -211,10 +212,20 @@ def getSolution(self, comm="None"):
             from pykinsol import solve as KINsolve
             print("USING KINSOL SOLVER LIB")
             try:
+                if (self.readerType == 'BIN'):
+                    A = self.matrices.load_sparse_csr_bin(self.afilename)
+                    q = self.matrices.load_sparse_csr_bin(self.bfilename)
+                    q = q.todense()
+                    q = np.squeeze(np.asarray(q))
+                elif (self.readerType == 'CSR'):
+                    A = self.matrices.load_sparse_csr(self.afilename)
+                    q = self.matrices.load_sparse_csr(self.bfilename)
+                    q = q.todense()
+                    q = np.squeeze(np.asarray(q))
                 #A & q here should be function instead of  matrix & vector
-                result = KINsolve(self.A, self.q, np.zeros(self.N))
+                result = KINsolve(A, q, np.zeros, self.N)
                 assert result['success']
-                p = res['x']
+                p = result['x']
             except:
                 print("Unexpected error:", sys.exc_info()[0])
                 print("KINSOL- didn't complete\n")
@@ -223,8 +234,21 @@ def getSolution(self, comm="None"):
             print("USING PYGMRES SOLVER LIB")
             counter = gmres_counter()
             try:
+                if (self.readerType == 'BIN'):
+                    A = self.matrices.load_sparse_csr_bin(self.afilename)
+                    q = self.matrices.load_sparse_csr_bin(self.bfilename)
+                    q = q.todense()
+                    q = np.squeeze(np.asarray(q))
+                elif (self.readerType == 'CSR'):
+                    A = self.matrices.load_sparse_csr(self.afilename)
+                    q = self.matrices.load_sparse_csr(self.bfilename)
+                    q = q.todense()
+                    q = np.squeeze(np.asarray(q))
                 #pdb.set_trace()
-                p, info = gmres(self.A, self.q, tol=self.atol, maxiter=self.maxiter, callback=counter)
+                p, info = gmres(A, q,
+                                tol=atol,
+                                maxiter=maxiter,
+                                callback=counter)
                 print("No. of steps: " + str(counter.niter))
             except:
                 print("PYGMRES- didn't complete\n")
@@ -235,24 +259,41 @@ def getSolution(self, comm="None"):
             break
         if case('PARALUTION'):
             print("USING PARALUTION SOLVER LIB")
-            A_row_offsets = np.asarray(self.A.indptr, dtype=np.intc)
-            A_col = np.asarray(self.A.indices, dtype=np.intc)
-            A_val = np.asarray(self.A.data, dtype=np.float64)
-            array_1d_double = npct.ndpointer(dtype=np.float64, ndim=1, flags='CONTIGUOUS')
-            array_1d_int = npct.ndpointer(dtype=c_int, ndim=1, flags='CONTIGUOUS')
-            libp = npct.load_library("TPFA_paralution", ".")
-            # setup the return types and argument types
-            libp.gmres_paralution.restype = None
-            libp.gmres_paralution.argtypes = [array_1d_int, c_int, array_1d_int, c_int, array_1d_double, c_int, array_1d_double, c_int, c_int, c_int, c_int, c_int, array_1d_double]
-            p = np.zeros((nrows,), dtype=np.double)
-            #pdb.set_trace()
-            libp.gmres_paralution(A_row_offsets, len(A_row_offsets), A_col, len(A_col), A_val, len(A_val), q, len(q), nrows, ncols, nnz, nrows, p)
-            print(p)
+            try:
+                if (self.readerType == 'BIN'):
+                    A = self.matrices.load_sparse_csr_bin(self.afilename)
+                    q = self.matrices.load_sparse_csr_bin(self.bfilename)
+                    q = q.todense()
+                    q = np.squeeze(np.asarray(q))
+                elif (self.readerType == 'CSR'):
+                    A = self.matrices.load_sparse_csr(self.afilename)
+                    q = self.matrices.load_sparse_csr(self.bfilename)
+                    q = q.todense()
+                    q = np.squeeze(np.asarray(q))
+                A_row_offsets = np.asarray(A.indptr, dtype=np.intc)
+                A_col = np.asarray(A.indices, dtype=np.intc)
+                A_val = np.asarray(A.data, dtype=np.float64)
+                array_1d_double = npct.ndpointer(dtype=np.float64,
+                                                 ndim=1,
+                                                 flags='CONTIGUOUS')
+                array_1d_int = npct.ndpointer(dtype=c_int,
+                                              ndim=1,
+                                              flags='CONTIGUOUS')
+                libp = npct.load_library("TPFA_paralution", ".")
+                # setup the return types and argument types
+                libp.gmres_paralution.restype = None
+                libp.gmres_paralution.argtypes = [array_1d_int, c_int, array_1d_int, c_int, array_1d_double, c_int, array_1d_double, c_int, c_int, c_int, c_int, c_int, array_1d_double]
+                p = np.zeros((nrows,), dtype=np.double)
+                #pdb.set_trace()
+                libp.gmres_paralution(A_row_offsets, len(A_row_offsets), A_col, len(A_col), A_val, len(A_val), q, len(q), nrows, ncols, nnz, nrows, p)
+                print(p)
+            except:
+                print("PARALUTION- didn't complete\n")
             break
         if case():  # default, could also just omit condition or 'if True'
             print("USING PYTHON DEFAULT SPSOLVE")
             try:
-                p = spsolve(self.A, self.q)
+                p = spsolve(A, q)
             except:
                 print("Default- didn't complete\n")
     # return p
@@ -263,9 +304,8 @@ class TFPA_MiniApp:
     """
 
     """
-
-    #def __init__(self, H=None, Nx=None, Ny=None, Nz=None, num=None, lib=None, doplot=None):
-    def __init__(self, H, Nx, Ny, Nz, num, atol, rtol, divtol, maxiter, lib, doplot):
+    def __init__(self, H, Nx, Ny, Nz, num, atol, rtol,
+                 divtol, maxits, lib, doplot):
         """
 
         :return:
@@ -304,15 +344,48 @@ class TFPA_MiniApp:
         self.isRead = "False"
         # set isWrite to false
         self.isWrite = "False"
-        # set isPETScRead to false
-        self.isPETScRead = "False"
-        # set isPETScWrite to false
-        self.isPETScWrite = "False"
+        # set matrices object
+        self.matrices = read_write_matrices()
         # set up the MATLAB matrix to run in test mode
-        self.pMATLAB = np.array([-8.60E-015, -1.67E+000, -2.35E+000, -2.66E+000, -2.79E+000, -1.67E+000, -2.16E+000, -2.53E+000, -2.75E+000, -2.86E+000, -2.35E+000, -2.53E+000, -2.73E+000, -2.88E+000, -2.96E+000, -2.66E+000, -2.75E+000, -2.88E+000, -3.00E+000, -3.06E+000, -2.79E+000, -2.86E+000, -2.96E+000, -3.06E+000, -3.13E+000, -1.67E+000, -2.16E+000, -2.53E+000, -2.75E+000, -2.86E+000, -2.16E+000, -2.41E+000, -2.66E+000, -2.84E+000, -2.93E+000, -2.53E+000, -2.66E+000, -2.82E+000, -2.96E+000, -3.04E+000, -2.75E+000, -2.84E+000, -2.96E+000, -3.09E+000, -3.17E+000, -2.86E+000, -2.93E+000, -3.04E+000, -3.17E+000, -3.26E+000, -2.35E+000, -2.53E+000, -2.73E+000, -2.88E+000, -2.96E+000, -2.53E+000, -2.66E+000, -2.82E+000, -2.96E+000, -3.04E+000, -2.73E+000, -2.82E+000, -2.96E+000, -3.10E+000, -3.20E+000, -2.88E+000, -2.96E+000, -3.10E+000, -3.27E+000, -3.39E+000, -2.96E+000, -3.04E+000, -3.20E+000, -3.39E+000, -3.58E+000, -2.66E+000, -2.75E+000, -2.88E+000, -3.00E+000, -3.06E+000, -2.75E+000, -2.84E+000, -2.96E+000, -3.09E+000, -3.17E+000, -2.88E+000, -2.96E+000, -3.10E+000, -3.27E+000, -3.39E+000, -3.00E+000, -3.09E+000, -3.27E+000, -3.51E+000, -3.76E+000, -3.06E+000, -3.17E+000, -3.39E+000, -3.76E+000, -4.26E+000, -2.79E+000, -2.86E+000, -2.96E+000, -3.06E+000, -3.13E+000, -2.86E+000, -2.93E+000, -3.04E+000, -3.17E+000, -3.26E+000, -2.96E+000, -3.04E+000, -3.20E+000, -3.39E+000, -3.58E+000, -3.06E+000, -3.17E+000, -3.39E+000, -3.76E+000, -4.26E+000, -3.13E+000, -3.26E+000, -3.58E+000, -4.26E+000, -5.92E+000], dtype=float)
+        self.pMATLAB = np.array([
+            -8.60E-015, -1.67E+000, -2.35E+000, -2.66E+000,
+            -2.79E+000, -1.67E+000, -2.16E+000, -2.53E+000,
+            -2.75E+000, -2.86E+000, -2.35E+000, -2.53E+000,
+            -2.73E+000, -2.88E+000, -2.96E+000, -2.66E+000,
+            -2.75E+000, -2.88E+000, -3.00E+000, -3.06E+000,
+            -2.79E+000, -2.86E+000, -2.96E+000, -3.06E+000,
+            -3.13E+000, -1.67E+000, -2.16E+000, -2.53E+000,
+            -2.75E+000, -2.86E+000, -2.16E+000, -2.41E+000,
+            -2.66E+000, -2.84E+000, -2.93E+000, -2.53E+000,
+            -2.66E+000, -2.82E+000, -2.96E+000, -3.04E+000,
+            -2.75E+000, -2.84E+000, -2.96E+000, -3.09E+000,
+            -3.17E+000, -2.86E+000, -2.93E+000, -3.04E+000,
+            -3.17E+000, -3.26E+000, -2.35E+000, -2.53E+000,
+            -2.73E+000, -2.88E+000, -2.96E+000, -2.53E+000,
+            -2.66E+000, -2.82E+000, -2.96E+000, -3.04E+000,
+            -2.73E+000, -2.82E+000, -2.96E+000, -3.10E+000,
+            -3.20E+000, -2.88E+000, -2.96E+000, -3.10E+000,
+            -3.27E+000, -3.39E+000, -2.96E+000, -3.04E+000,
+            -3.20E+000, -3.39E+000, -3.58E+000, -2.66E+000,
+            -2.75E+000, -2.88E+000, -3.00E+000, -3.06E+000,
+            -2.75E+000, -2.84E+000, -2.96E+000, -3.09E+000,
+            -3.17E+000, -2.88E+000, -2.96E+000, -3.10E+000,
+            -3.27E+000, -3.39E+000, -3.00E+000, -3.09E+000,
+            -3.27E+000, -3.51E+000, -3.76E+000, -3.06E+000,
+            -3.17E+000, -3.39E+000, -3.76E+000, -4.26E+000,
+            -2.79E+000, -2.86E+000, -2.96E+000, -3.06E+000,
+            -3.13E+000, -2.86E+000, -2.93E+000, -3.04E+000,
+            -3.17E+000, -3.26E+000, -2.96E+000, -3.04E+000,
+            -3.20E+000, -3.39E+000, -3.58E+000, -3.06E+000,
+            -3.17E+000, -3.39E+000, -3.76E+000, -4.26E+000,
+            -3.13E+000, -3.26E+000, -3.58E+000, -4.26E+000,
+            -5.92E+000], dtype=float)
 
     def testMode(self, comm=None):
-        print("Test mode:\n run with homogeneous permeability matrix and domain 5x5x5 with a domain length of 1.0 to compare against p calculated in MATLAB\n")
+        print('Test mode:\n run with homogeneous permeability matrix '
+              'and domain 5x5x5 with a domain length of 1.0 to '
+              'compare against p calculated in MATLAB\n')
+        # matlab p from homog matrix: 5x5x5, domain length 1.0:
         p = getSolution(self, comm)
         #p = spsolve(self.A,self.q)
         P = np.around(p, decimals=2)
@@ -321,58 +394,63 @@ class TFPA_MiniApp:
         np.testing.assert_allclose(P, self.pMATLAB, rtol=1e-05, atol=1e-07)
         print("TEST PASSED\n")
 
-    def setupReader(self, readerType, ARfilename, BRfilename):
+    def setupReader(self, readerType, afilename, bfilename, xfilename):
         self.isRead = 'True'
-        self.ARfilename = ARfilename 
-        self.BRfilename = BRfilename
         self.readerType = readerType
+        self.afilename = afilename
+        self.bfilename = bfilename
+        self.xfilename = xfilename
 
-    def setupWriter(self, writerType, AWfilename, BWfilename):
+    def setupWriter(self, writerType, afilename, bfilename):
         self.isWrite = 'True'
-        self.AWfilename = AWfilename 
-        self.BWfilename = BWfilename
         self.writerType = writerType
+        self.afilename = afilename
+        self.bfilename = bfilename
 
-    def setupPETScReader(self, ARfilename, BRfilename):
-        self.isPETScRead = 'True'
-        self.ARfilename = ARfilename 
-        self.BRfilename = BRfilename
-
-    def setupPETScWriter(self, AWfilename, BWfilename, XWfilename):
-        self.isPETScWrite = 'True'
-        self.AWfilename = AWfilename 
-        self.BWfilename = BWfilename
-        self.XWfilename = XWfilename
-
-    def setupBCs(self, comm=None):
+    def setupBCs(self, save=0, comm=None):
         # Place an injection well at the origin and
         # production wells at the points (p/m1,p/m1) and
-        # specify no-flow conditions at the boundaries.        
-        
-        if (self.isPETScWrite == 'True'):
-            rank = comm.rank
-            Bpetsc = petsc4py.PETSc.Vec().createMPI(self.N, comm=comm)
-            rstart, rend = Bpetsc.getOwnershipRange()
-            for I in range(rstart, rend):
-                Bpetsc.setValue(I, 0)
-                if (I == 0):
-                    Bpetsc.setValue(I, 1.0)
-                if (I == self.N-1):
-                    Bpetsc.setValue(I, -1.0)
-            Bpetsc.setFromOptions()
-            Bpetsc.setUp()
-            Bpetsc.assemblyBegin()
-            Bpetsc.assemblyEnd()
-            if (rank == 0):   
-                print("Saving B {0}".format(self.BWfilename))
-            viewer = petsc4py.PETSc.Viewer().createBinary(self.BWfilename, 'w')
-            viewer(Bpetsc)
-            if (rank == 0):
-                print("Done")
-        
+        # specify no-flow conditions at the boundaries.
+        rank = comm.rank
+        '''
         self.q = np.zeros(int(self.N))
-        self.q[0] = 1.0 
+        self.q[0] = 1.0
         self.q[self.N-1] = -1.0
+        '''
+        if (self.isWrite == 'True'):
+            if (self.lib == 'PETSC'):
+                Bpetsc = petsc4py.PETSc.Vec().createMPI(self.N, comm=comm)
+                rstart, rend = Bpetsc.getOwnershipRange()
+                for I in range(rstart, rend):
+                    Bpetsc.setValue(I, 0)
+                    if (I == 0):
+                        Bpetsc.setValue(I, 1.0)
+                    if (I == self.N-1):
+                        Bpetsc.setValue(I, -1.0)
+                Bpetsc.setFromOptions()
+                Bpetsc.setUp()
+                Bpetsc.assemblyBegin()
+                Bpetsc.assemblyEnd()
+                if (save):
+                    if (rank == 0):
+                        print("Saving {0}".format(self.bfilename))
+                    viewer = petsc4py.PETSc.Viewer().\
+                        createBinary(self.bfilename, 'w')
+                    viewer(Bpetsc)
+                    if (rank == 0):
+                        print("Done")
+            else:
+                #matrices = read_write_matrices()
+                self.q = np.zeros(int(self.N))
+                self.q[0] = 1.0
+                self.q[self.N-1] = -1.0
+                if (save):
+                    if (self.writerType == 'BIN'):
+                        B = sp.sparse.csr_matrix(self.q)
+                        self.save_sparse_csr_bin(self.bfilename, B)
+                    elif (self.writerType == 'CSR'):
+                        B = sp.sparse.csr_matrix(self.q)
+                        self.save_sparse_csr(self.bfilename, B)
 
     def setupHomogPermeability(self):
         # Homogeneous permeability matrix:
@@ -380,65 +458,14 @@ class TFPA_MiniApp:
 
     def setupPermeability(self, comm=None, rank=None):
         # Permeability tensor:
-        # Illconditioned: Heterogeneous permeability (with random number generator)
+        # Illconditioned: Heterogeneous permeability
+        # (with random number generator)
         # Where num is a number between 1 and 3, for starters
-        # The larger num is the more illconditioned the K matrix        
-        self.K = (np.random.lognormal(0.0, self.num, (3, self.Nx, self.Ny, self.Nz)))
+        # The larger num is the more illconditioned the K matrix
+        self.K = (np.random.lognormal(
+            0.0, self.num, (3, self.Nx, self.Ny, self.Nz)))
 
     def setupMatrices(self, comm=None):
-        matrices = read_write_matrices()
-        # Set up reading and writing of K (Permeability) and q (Pressure) matrices
-        if(self.isRead == 'True' and self.readerType == 'BIN'):
-            shapeK = (3,self.N)
-            K = matrices.load_sparse_csr_bin(self.ARfilename, shapeK)
-            K = K.todense()
-            K = np.squeeze(np.asarray(K))
-            K = np.reshape(K,(3,self.Nx,self.Ny,self.Nz))
-            self.K = K
-            shapeq = (1,self.N)
-            q = matrices.load_sparse_csr_bin(self.BRfilename, shapeq)
-            q = q.todense()
-            q = np.squeeze(np.asarray(q))
-            self.q = q
-            # DEBUG Check:
-            #KC = np.reshape(self.K,(3,self.N))
-            #KC = sp.sparse.csr_matrix(KC)
-            #matrices.save_sparse_csr_bin("checkbinAfile.npz",KC)
-            #BC = sp.sparse.csr_matrix(self.q)
-            #matrices.save_sparse_csr_bin("checkbinBfile.npz",BC)
-            # NOTE: binary files originally written out and check files
-            # differ due to floating pt precision?
-            # However when I load up checkbinAfile.npz and
-            # checkbinBfile.npz to be read in
-            # I get the same answer so I'm satisfied they are consistent
-        elif(self.isRead == 'True' and self.readerType == 'CSR'):
-            K = matrices.load_sparse_csr(self.ARfilename)
-            K = K.todense()
-            K = np.squeeze(np.asarray(K))
-            K = np.reshape(K, (3, self.Nx, self.Ny, self.Nz))
-            self.K = K
-            q = matrices.load_sparse_csr(self.BRfilename)
-            q = q.todense()
-            q = np.squeeze(np.asarray(q))
-            self.q = q
-            # DEBUG Check:
-            #KC = np.reshape(self.K,(3,self.N))
-            #KC = sp.sparse.csr_matrix(KC)
-            #matrices.save_sparse_csr("checkAfile.mtx",KC)
-            #BC = sp.sparse.csr_matrix(self.q)
-            #matrices.save_sparse_csr("checkBfile.mtx",BC)
-        if (self.isWrite == 'True' and self.writerType == 'BIN'):
-            K = np.reshape(self.K, (3, self.N))
-            K = sp.sparse.csr_matrix(K)
-            matrices.save_sparse_csr_bin(self.AWfilename, K)
-            B = sp.sparse.csr_matrix(self.q)
-            matrices.save_sparse_csr_bin(self.BWfilename, B)
-        elif (self.isWrite == 'True' and self.writerType == 'CSR'):
-            K = np.reshape(self.K, (3, self.N))
-            K = sp.sparse.csr_matrix(K)
-            matrices.save_sparse_csr(self.AWfilename, K)
-            B = sp.sparse.csr_matrix(self.q)
-            matrices.save_sparse_csr(self.BWfilename, B)
         # Compute transmissibilities by taking a distance-weighted harmonic
         # average of the respective directional cell permeabilities
         # Elementwise raising to the power of -1
@@ -450,12 +477,16 @@ class TFPA_MiniApp:
         tz = 2*self.hx*self.hy/self.hz
         self.TZ = np.zeros((self.Nx, self.Ny, self.Nz+1))
         # Elementwise division - indexing in python starts from 0!
-        self.TX[1:self.Nx, :, :] = np.divide(tx, (L[0, 0:self.Nx-1, :, :]+L[0, 1:self.Nx, :, :]))
-        self.TY[:, 1:self.Ny, :] = np.divide(ty, (L[1, :, 0:self.Ny-1, :]+L[1, :, 1:self.Ny, :]))
-        self.TZ[:, :, 1:self.Nz] = np.divide(tz, (L[2, :, :, 0:self.Nz-1]+L[2, :, :, 1:self.Nz]))
+        self.TX[1:self.Nx, :, :] =\
+            np.divide(tx, (L[0, 0:self.Nx-1, :, :]+L[0, 1:self.Nx, :, :]))
+        self.TY[:, 1:self.Ny, :] =\
+            np.divide(ty, (L[1, :, 0:self.Ny-1, :]+L[1, :, 1:self.Ny, :]))
+        self.TZ[:, :, 1:self.Nz] =\
+            np.divide(tz, (L[2, :, :, 0:self.Nz-1]+L[2, :, :, 1:self.Nz]))
 
         # Assemble Two point flux approximation (TPFA) discretization matrix.
-        # WATCH OUT!!! Matlab reshapes in FORTRAN order whilst python reshapes in C order so need to transpose!!!
+        # WATCH OUT!!! Matlab reshapes in FORTRAN order whilst
+        # python reshapes in C order so need to transpose!!!
         x1 = np.reshape(self.TX[0:self.Nx, :, :].T, (self.N, 1))
         x2 = np.reshape(self.TX[1:self.Nx+1, :, :].T, (self.N, 1))
         y1 = np.reshape(self.TY[:, 0:self.Ny, :].T, (self.N, 1))
@@ -482,31 +513,41 @@ class TFPA_MiniApp:
         print((self.A.data))
 
     def saveAMatrix(self, comm=None):
-        if (self.isPETScWrite == 'True'):
-            rank = comm.rank
-            Apetsc = petsc4py.PETSc.Mat().create(PETSc.COMM_WORLD)
-            nrows, nrows = self.A.shape
-            Apetsc.setSizes([nrows, nrows])
-            Apetsc.setFromOptions()
-            Apetsc.setType('mpiaij')
-            Apetsc.setUp()
-            
-            rstart, rend = Apetsc.getOwnershipRange()
-            csr = (self.A.indptr[rstart:rend+1] - self.A.indptr[rstart], self.A.indices[self.A.indptr[rstart]:self.A.indptr[rend]], self.A.data[self.A.indptr[rstart]:self.A.indptr[rend]])
-            Apetsc.setPreallocationCSR(csr)
-            
-            for I in range(rstart, rend):
-                #print("{0}: {1} of {2}".format(I, rstart, rend))
-                for J in range(self.A.indptr[I], self.A.indptr[I+1]-1):
-                    Apetsc.setValue(I, self.A.indices[J], self.A.data[J])
-                #Apetsc.setValue(I, 0, -1.0)
-            Apetsc.assemble()
-            if (rank == 0):
-                print("Saving A {0} ...".format(self.AWfilename))
-            viewer = petsc4py.PETSc.Viewer().createBinary(self.AWfilename, 'w')
-            viewer(Apetsc)
-            if (rank == 0):
-                print("Done")
+        #print("isWrite={0}".format(self.isWrite))
+        if (self.isWrite == 'True'):
+            if (self.lib == 'PETSC'):
+                rank = comm.rank
+                Apetsc = petsc4py.PETSc.Mat().create(PETSc.COMM_WORLD)
+                nrows, nrows = self.A.shape
+                Apetsc.setSizes([nrows, nrows])
+                Apetsc.setFromOptions()
+                Apetsc.setType('mpiaij')
+                Apetsc.setUp()
+                rstart, rend = Apetsc.getOwnershipRange()
+                csr = (self.A.indptr[rstart:rend+1] - self.A.indptr[rstart],
+                       self.A.indices[
+                           self.A.indptr[rstart]:self.A.indptr[rend]],
+                       self.A.data[self.A.indptr[rstart]:self.A.indptr[rend]])
+                Apetsc.setPreallocationCSR(csr)
+                for I in range(rstart, rend):
+                    #print("{0}: {1} of {2}".format(I, rstart, rend))
+                    for J in range(self.A.indptr[I], self.A.indptr[I+1]-1):
+                        Apetsc.setValue(I, self.A.indices[J], self.A.data[J])
+                    #Apetsc.setValue(I, 0, -1.0)
+                Apetsc.assemble()
+                if (rank == 0):
+                    print("Saving {0} ...".format(self.afilename))
+                viewer = petsc4py.PETSc.Viewer().\
+                    createBinary(self.afilename, 'w')
+                viewer(Apetsc)
+                if (rank == 0):
+                    print("Done")
+            else:
+                #matrices = read_write_matrices()
+                if (self.writerType == 'BIN'):
+                    self.save_sparse_csr_bin(self.AWfilename, self.A)
+                elif (self.writerType == 'CSR'):
+                    self.save_sparse_csr(self.AWfilename, self.A)
 
     def solve(self, comm=None):
         # Solve linear system and extract interface fluxes.
@@ -514,9 +555,8 @@ class TFPA_MiniApp:
         #50x50x50: abs tol=1e-15; rel tol=1e-06; div tol=1e+08
         #p = getSolution(self.A, self.q, self.N, self.lib, self.A_nnz, self.A_nrows, self.A_ncols, atol=1e-15, rtol=1e-06, divtol=1e+05, maxiter=100000)
         #p = getSolution(atol=1e-15, rtol=1e-06, divtol=1e+05, maxiter=100000)
-        p = getSolution(self,comm)
+        p = getSolution(self, comm)
         '''
-	# Extract interface fluxes
         self.P = np.reshape(p,(self.Nx,self.Ny,self.Nz))
         self.Vx = np.zeros((self.Nx+1,self.Ny,self.Nz))
         self.Vy = np.zeros((self.Nx,self.Ny+1,self.Nz))
@@ -526,7 +566,6 @@ class TFPA_MiniApp:
         self.Vy[:,1:self.Ny,:] = np.multiply((self.P[:,0:self.Ny-1,:]-self.P[:,1:self.Ny,:]),self.TY[:,1:self.Ny,:])
         self.Vz[:,:,1:self.Nz] = np.multiply((self.P[:,:,0:self.Nz-1]-self.P[:,:,1:self.Nz]),self.TZ[:,:,1:self.Nz])
         '''
-        
 
     def plot(self):
         plt.ioff()
@@ -567,41 +606,50 @@ class TFPA_MiniApp:
 
 if __name__ == '__main__':
     # Instantiate the parser
-    parser = argparse.ArgumentParser(description="This MiniApp expects the following variables to be given in this order:\n # Length of domain, H\n # No. of cells in x, Nx\n # No. of cells in y, Ny\n # No. of cells in z, Nz\n # Linear solve library: KINSOL, PARALUTION, PETSC, DEFAULT\n # atol, rtol, divtol, maxiter\n# Draw plots: Y (yes), N (no)\n E.g. python FD_3D_TwoPointFluxApproximation_MiniApp.py -s 1.0 20 20 20 2 1.0e-15 1.0e-6 1.0e8 1000 'PETSC' 'Y'\n # Optional arguments include:\n # in reader mode: type of matrices to be read in: BIN, CSR, file name of A matrix, file name of B matrix\n # in writer mode: type of matrices to be read in: BIN, CSR, file name of A matrix, file name of B matrix\n")
+    parser = argparse.ArgumentParser(description="This MiniApp \
+        expects the following variables to be given in this order:\n \
+        # Length of domain, \
+        H\n # No. of cells in x, Nx\n # No. of cells in y, \
+        Ny\n # No. of cells in z, Nz\n # Linear solve library: \
+        KINSOL, PARALUTION, PETSC, DEFAULT\n # atol, rtol, divtol, \
+        maxiter\n# Draw plots: Y (yes), N (no)\n E.g. \
+        python FD_3D_TwoPointFluxApproximation_MiniApp.py -s \
+        1.0 20 20 20 2 1.0e-15 1.0e-6 1.0e8 1000 'PETSC' 'Y'\n \
+        # Optional arguments include:\n # in reader mode: type of \
+        matrices to be read in: BIN, CSR, file name of A matrix, \
+        file name of B matrix\n # in writer mode: type of matrices \
+        to be read in: BIN, CSR, file name of A matrix, \
+        file name of B matrix\n")
 
     # Add a mutually exclusive group: solve_mode, test_mode
-    group = parser.add_mutually_exclusive_group()
+    group = parser.add_mutually_exclusive_group(required=True)
 
     # Required  argument if not in test mode
+   # Required  argument if not in test mode
     group.add_argument('-s', '--solve_mode', nargs=11,
-                       help='Solve mode: H, Nx, Ny, Nz, num, atol, rtol, divtol, maxiter, lib, drawplot')
+                       help='Solve mode: H, Nx, Ny, Nz, num, atol, rtol, \
+                       divtol, maxiter, lib, drawplot')
 
-    # Optional argument if not in test mode
-    parser.add_argument('-r', '--read_mode', nargs=3,
-                    help='read mode: type of matrices to read in, readAfilename, readBfilename')
+    # Required  argument if not in test mode
+    parser.add_argument('-r', '--read_mode', nargs=4,
+                        help='read mode: type={BIN|CSR}, readAfilename, \
+                        readBfilename, writeXfilename')
 
-    # Optional argument if not in test mode
+    # Required  argument if not in test mode
     parser.add_argument('-w', '--write_mode', nargs=3,
-                    help='write mode: type of matrices to write, writeAfilename, writeBfilename')
+                        help='write mode: type={BIN|CSR}, \
+                        writeAfilename, writeBfilename')
 
-    # Optional argument if not in test mode
-    parser.add_argument('-rpetsc', '--read_petscmat', nargs=2,
-                    help='read petsc matrices (only if lib == PETSc): readAfilename, readBfilename')
-
-    # Optional argument if not in test mode
-    parser.add_argument('-wpetsc', '--write_petscmat', nargs=3,
-                    help='write petsc matrices (only if lib == PETSc): writeAfilename, writeBfilename, writeXfilename')
-
-    # Required arguments in test mode
+    # Required  argument if not in test mode
     parser.add_argument('-t', '--test_mode', nargs=1,
-                    help='test mode: lib')
+                        help='test mode: lib')
     # Parse args
     args = parser.parse_args()
 
     # Run in test mode if there is only one command line args given:
     #print(len(sys.argv))
-    comm = petsc4py.PETSc.COMM_WORLD
-    #comm = PETSc.COMM_WORLD
+    #comm = petsc4py.PETSc.COMM_WORLD
+    comm = PETSc.COMM_WORLD
     rank = comm.getRank()
     if (args.test_mode):
         message = ('Argument to test mode requires a valid library name')
@@ -615,13 +663,13 @@ if __name__ == '__main__':
         else:
             raise parser.error(message)
         print("Running in test mode with lib " + str(lib) + "\n")
-        data = TFPA_MiniApp(1.0, 5, 5, 5, 0, 1e-15, 1e-06, 1e+08, 1000, lib, 'N')
-        data.setupBCs()
+        data = TFPA_MiniApp(1.0, 5, 5, 5, 0, 1e-15, 1e-06,
+                            1e+08, 1000, lib, 'N')
+        data.setupBCs(save=0, comm=PETSc.COMM_SELF)
         data.setupHomogPermeability()
         data.setupMatrices()
-        data.testMode(comm)
+        data.testMode(comm=PETSc.COMM_SELF)
     elif (args.solve_mode):
-        start_brutto = time.time()
         if len(args.solve_mode) == 11:
             #comm = MPI.COMM_WORLD
             #rank = comm.rank
@@ -629,156 +677,163 @@ if __name__ == '__main__':
             try:
                 H = float(args.solve_mode[0])
             except ValueError:
-                message = ('1st argument to solve mode, H, should be a float')
+                message = ('1st argument to write mode, H, should be a float')
                 raise parser.error(message)
             try:
                 Nx = int(args.solve_mode[1])
             except ValueError:
-                message = ('2nd argument to solve mode, Nx, should be an int')
+                message = ('2nd argument to write mode, Nx, should be an int')
                 raise parser.error(message)
             try:
                 Ny = int(args.solve_mode[2])
             except ValueError:
-                message = ('3rd argument to solve mode, Ny, should be an int')
+                message = ('3rd argument to write mode, Ny, should be an int')
                 raise parser.error(message)
             try:
                 Nz = int(args.solve_mode[3])
             except ValueError:
-                message = ('4th argument to solve mode, Nz, should be an int')
+                message = ('4th argument to write mode, Nz, should be an int')
                 raise parser.error(message)
             try:
                 num = int(args.solve_mode[4])
             except ValueError:
-                message = ('5th argument to solve mode, num, should be an int')
+                message = ('5th argument to write mode, num, should be an int')
                 raise parser.error(message)
             try:
                 atol = float(args.solve_mode[5])
             except ValueError:
-                message = ('6th argument to solve mode, atol, should be a float')
+                message = ('6th argument to write mode, atol, '
+                           'should be a float')
                 raise parser.error(message)
             try:
                 rtol = float(args.solve_mode[6])
             except ValueError:
-                message = ('7th argument to solve mode, rtol, should be a float')
+                message = ('7th argument to write mode, rtol, '
+                           'should be a float')
                 raise parser.error(message)
             try:
                 divtol = float(args.solve_mode[7])
             except ValueError:
-                message = ('8th argument to solve mode, divtol, should be a float')
+                message = ('8th argument to write mode, divtol, '
+                           'should be a float')
                 raise parser.error(message)
             try:
                 maxiter = int(args.solve_mode[8])
             except ValueError:
-                message = ('9th argument to solve mode, maxiter, should be an int')
+                message = ('9th argument to write mode, maxiter, '
+                           'should be an int')
                 raise parser.error(message)
             try:
                 lib = args.solve_mode[9]
             except ValueError:
-                message = ('10th argument to solve mode, lib, should be KINSOL, PARALUTION, PETSC, DEFAULT')
+                message = ('10th argument to write mode, lib, '
+                           'should be KINSOL, PARALUTION, PETSC, DEFAULT')
                 raise parser.error(message)
             try:
                 doplot = args.solve_mode[10]
             except ValueError:
-                message = ('11th argument to solve mode, doplot, should be either Y or N')
+                message = ('11th argument to write mode, doplot, '
+                           'should be either Y or N')
                 raise parser.error(message)
-            #initialise the miniapp
-            data = TFPA_MiniApp(H, Nx, Ny, Nz, num, atol, rtol, divtol, maxiter, lib, doplot)
             if (lib == 'PETSC' and rank == 0):
                 print("Initializing PETSC ...")
                 petsc4py.init(sys.argv)
-                if(args.read_petscmat):
-                    comm = MPI.COMM_WORLD
-                    rank = comm.rank
-                    start_brutto = MPI.Wtime()
-                    if (rank == 0):
-                        print ('Initialising petsc reader')
+            if(args.read_mode):
+                comm = MPI.COMM_WORLD
+                rank = comm.rank
+                start_brutto = MPI.Wtime()
+                if (rank == 0):
+                    #message = ('')
+                    message = ('Read which type of matrices, should '
+                               'be either BIN or CSR')
                     try:
-                        afilename = args.read_petscmat[0]
+                        readerType = args.read_mode[0]
                     except ValueError:
-                        message = ('A filename for petsc reader should be a string')
+                        raise parser.error(message)
+                    if (readerType != 'BIN' and readerType != 'CSR'):
                         raise parser.error(message)
                     try:
-                        bfilename = args.read_petscmat[1]
+                        afilename = args.read_mode[1]
                     except ValueError:
-                        message = ('B filename for petsc reader should be a string')
-                        raise parser.error(message)
-                    data.setupPETScReader(afilename, bfilename)
-                if (args.write_petscmat):
-                    comm = MPI.COMM_WORLD
-                    rank = comm.rank
-                    start_brutto = MPI.Wtime()
-                    if (rank == 0):
-                        print ('Initialising petsc writer')
-                    try:
-                        afilename = args.write_petscmat[0]
-                    except ValueError:
-                        message = ('A filename for petsc writer should be a string')
+                        message = ('A filename for reader should be a string '
+                                   'and should end with suffix .dat')
                         raise parser.error(message)
                     try:
-                        bfilename = args.write_petscmat[1]
+                        bfilename = args.read_mode[2]
                     except ValueError:
-                        message = ('B filename for petsc writer should be a string')
+                        message = ('B filename for reader should be a string '
+                                   'and should end with suffix .dat')
                         raise parser.error(message)
                     try:
-                        xfilename = args.write_petscmat[2]
+                        xfilename = args.read_mode[3]
                     except ValueError:
-                        message = ('X filename for petsc writer should be a string')
+                        message = ('X filename for reader should be a string '
+                                   'and should end with suffix .dat')
                         raise parser.error(message)
-                    data.setupPETScWriter(afilename, bfilename, xfilename) 
-            if (args.read_mode):
-                message = ('Read which type of matrices, should be either BIN or CSR')
-                try:
-                    readerType = args.read_mode[0]
-                except ValueError:
-                    raise parser.error(message)
-                if (readerType != 'BIN' and readerType != 'CSR'):
-                    raise parser.error(message)
-                try:
-                    ARfilename = args.read_mode[1]
-                except ValueError:
-                    message = ('A filename for reader should be a string and should end with suffix .npz for BIN')
-                    raise parser.error(message)
-                try:
-                    BRfilename = args.read_mode[2]
-                except ValueError:
-                    message = ('B filename for reader should be a string and should end with suffix .npz for BIN')
-                    raise parser.error(message)
-                data.setupReader(readerType, ARfilename, BRfilename)
-            if (args.write_mode):
-                message = ('Write which type of matrices, should be either BIN or CSR')
-                try:
-                    writerType = args.write_mode[0]
-                except ValueError:
-                    raise parser.error(message)
-                if (writerType != 'BIN' and writerType != 'CSR'):
-                    raise parser.error(message)
-                try:
-                    AWfilename = args.write_mode[1]
-                except ValueError:
-                    message = ('A filename for reader should be a string and should end with suffix .npz for BIN')
-                    raise parser.error(message)
-                try:
-                    BWfilename = args.write_mode[2]
-                except ValueError:
-                    message = ('B filename for reader should be a string and should end with suffix .npz for BIN')
-                    raise parser.error(message)
-                data.setupWriter(writerType, AWfilename, BWfilename)
-            data.setupBCs(comm)
-            data.setupPermeability()
-            data.setupMatrices()
-            print("Starting computations...\n")
-            #if (rank == 0): 
-            #    print("Before bcast")
-            #    data = comm.bcast(data, root=0)
-            #if (rank == 0): 
-            #    print("After bcast")
-            data.solve(comm)
-            end_brutto = time.time()
-            print('Gross time: ' + str(end_brutto - start_brutto))
-            if (data.doplot.startswith("Y") or data.doplot.startswith("y")):
-                data.plot()
-            if (args.write_petscmat):
-                data.saveAMatrix(comm)
+                    data = TFPA_MiniApp(H, Nx, Ny, Nz,
+                                        num, atol, rtol,
+                                        divtol, maxiter,
+                                        lib, doplot)
+                    data.setupReader(readerType, afilename, bfilename,
+                                     xfilename)
+                else:
+                    data = None
+                if (rank == 0):
+                    print("Before bcast")
+                data = comm.bcast(data, root=0)
+                if (rank == 0):
+                    print("After bcast")
+                data.solve(comm)
+                end_brutto = MPI.Wtime()
+                if (rank == 0):
+                    print('Gross time: ' + str(end_brutto - start_brutto))
+                    if (data.doplot.startswith("Y") or
+                       data.doplot.startswith("y")):
+                            data.plot()
+            if(args.write_mode):
+                comm = MPI.COMM_WORLD
+                if (rank == 0):
+                    #comm=MPI.COMM_SELF
+                    #message = ('')
+                    message = ('Write which type of matrices, '
+                               'should be either BIN or CSR')
+                    try:
+                        writerType = args.write_mode[0]
+                    except ValueError:
+                        raise parser.error(message)
+                    if (writerType != 'BIN' and writerType != 'CSR'):
+                        raise parser.error(message)
+                    try:
+                        afilename = args.write_mode[1]
+                    except ValueError:
+                        message = ('A filename for reader should be a string '
+                                   'and should end with suffix .dat')
+                        raise parser.error(message)
+                    try:
+                        bfilename = args.write_mode[2]
+                    except ValueError:
+                        message = ('B filename for reader should be a string '
+                                   'and should end with suffix .dat')
+                        raise parser.error(message)
+                    data = TFPA_MiniApp(H, Nx, Ny, Nz, num, atol,
+                                        rtol, divtol, maxiter,
+                                        lib, doplot)
+                    print("setupWriter {0} {1}".format(afilename, bfilename))
+                    data.setupWriter(writerType, afilename, bfilename)
+                    print("setupPermeability")
+                    data.setupPermeability()
+                    print("setupMatrices")
+                    data.setupMatrices(comm=PETSc.COMM_WORLD)
+                else:
+                    data = None
+                data = comm.bcast(data, root=0)
+                data.saveAMatrix(comm=PETSc.COMM_WORLD)
+                data.setupBCs(save=1, comm=comm)
     else:
-        print("ERROR: This MiniApp expects the following variables to be given in this order:\n # Length of domain, H\n # No. of cells in x, Nx\n # No. of cells in y, Ny\n # No. of cells in z, Nz\n # Linear solve library: MKL, PETSc\n # Draw plots: Y (yes), N (no)\n E.g. python FD_3D_TwoPointFluxApproximation_MiniApp.py 1.0 20 20 20 5 'MKL' 'Y'\n")
+        print("ERROR: This MiniApp expects the following variables to be given"
+              'in this order:\n # Length of domain, H\n # No. of cells in x, '
+              'Nx\n # No. of cells in y, Ny\n # No. of cells in z, Nz\n '
+              '# Linear solve library: MKL, PETSc\n # Draw plots: Y (yes), '
+              'N (no)\n E.g. python FD_3D_TwoPointFluxApproximation_MiniApp.py'
+              "1.0 20 20 20 5 'MKL' 'Y'\n")
 
