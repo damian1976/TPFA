@@ -61,7 +61,9 @@ __coauthor__ = 'damian'
 # Run in test mode: run with homog matrix and 5x5x5 with cell width
 # of 1.0 to compare against p calculated in MATLAB
 # Eg: python FD_3D_TwoPointFluxApproximation_MiniApp.py \
-# 1.0 20 20 20 5 'DEFAULT' 'Y'
+# -s 1.0 20 20 20 5 1e-15 1e-06 1e+05 100000 'PETSC' 'Y' \
+# -r BIN PETScAFileNx200Ny200Nz200 PETScBFileNx200Ny200Nz200
+# PETScXFileNx200Ny200Nz200
 
 # This class provides the switch functionality we want.
 # You only need to look at this if you want to know how this works.
@@ -831,9 +833,15 @@ if __name__ == '__main__':
                 data.setupBCs(save=1, comm=comm)
     else:
         print("ERROR: This MiniApp expects the following variables to be given"
-              'in this order:\n # Length of domain, H\n # No. of cells in x, '
-              'Nx\n # No. of cells in y, Ny\n # No. of cells in z, Nz\n '
-              '# Linear solve library: MKL, PETSc\n # Draw plots: Y (yes), '
-              'N (no)\n E.g. python FD_3D_TwoPointFluxApproximation_MiniApp.py'
-              "1.0 20 20 20 5 'MKL' 'Y'\n")
-
+              'in this order:\n # Running mode (-s),  Length of domain, H\n '
+              '# No. of cells in x, Nx\n # No. of cells in y, '
+              'Ny\n # No. of cells in z, Nz\n, absolute tolerance, \n'
+              'relative tolerance, divergnece tolerance\n '
+              '# Linear solve library: MKL, PETSC\n # Draw plots: Y (yes)\n, '
+              'N (no) Read/Write mode (-r | -w), Matrix A file name, \n'
+              'vector B file name, Result vector x filename (in case of \n'
+              '-r mode) \n'
+              'Eg: python FD_3D_TwoPointFluxApproximation_MiniApp.py \n'
+              "-s 1.0 20 20 20 5 1e-15 1e-06 1e+05 100000 'PETSC' 'Y' \n"
+              '-r BIN PETScAFileNx200Ny200Nz200 PETScBFileNx200Ny200Nz200 \n'
+              'PETScXFileNx200Ny200Nz200')
