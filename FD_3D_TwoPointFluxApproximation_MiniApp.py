@@ -32,7 +32,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import MultipleLocator
 from matplotlib import ticker
-from petsc4py import PETSc
+#from petsc4py import PETSc
 import petsc4py
 from mpi4py import MPI
 #import TPFA_paralution as paralution
@@ -152,16 +152,27 @@ def getSolution(self, comm=None):
                 print("USING PETSC SOLVER LIB")
                 print("Loading matrix {0}".format(self.afilename))
             viewer = petsc4py.PETSc.Viewer().createBinary(self.afilename, 'r')
-            A = petsc4py.PETSc.Mat().load(viewer)
-            #A.setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
-            # gpu_handle = v.getCUDAHandle()
+            if (self.target == 'CPU'):
+                A = petsc4py.PETSc.Mat().load(viewer)
+            elif (self.target == 'GPU'):
+                # A = petsc4py.PETSc.Mat().load(viewer).\
+                # setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
+                # viewer = petsc4py.PETSc.Viewer().\
+                #    createBinary(self.afilename, 'r')
+                A = PETSc.Mat().create(comm=comm)
+                A.setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
+                A.load(viewer)
             cols, rows = A.getSize()
             if (rank == 0):
                 print("Size={0}x{1}".format(rows, cols))
                 print("Loading vector {0}".format(self.bfilename))
             viewer = petsc4py.PETSc.Viewer().createBinary(self.bfilename, 'r')
-            b = petsc4py.PETSc.Vec().load(viewer)
-            #b.setType(PETSc.Vec.Type.MPICUSP)
+            if (self.target == 'CPU'):
+                b = petsc4py.PETSc.Vec().load(viewer)
+            elif (self.target == 'GPU'):
+                b = PETSc.Vec().create(comm=comm)
+                b.setType(PETSc.Vec.Type.MPICUSP)
+                b.load(viewer)
             if rank == 0:
                 print("Creating vector x...")
             x = b.duplicate()
@@ -173,10 +184,10 @@ def getSolution(self, comm=None):
             # use gmres method
             ksptype = petsc4py.PETSc.KSP.Type.GMRES
             ksp.setType(ksptype)
-            pc = ksp.getPC()
-            pc.setType('none')
-            ksp.setOperators(A)
+            #pc = ksp.getPC()
+            #pc.setType('none')
             ksp.setFromOptions()
+            ksp.setOperators(A)
             ksp.setTolerances(rtol=self.rtol,
                               atol=self.atol,
                               divtol=self.divtol,
@@ -307,7 +318,7 @@ class TFPA_MiniApp:
 
     """
     def __init__(self, H, Nx, Ny, Nz, num, atol, rtol,
-                 divtol, maxits, lib, doplot):
+                 divtol, maxits, lib, target, doplot):
         """
 
         :return:
@@ -332,6 +343,8 @@ class TFPA_MiniApp:
         self.maxiter = maxiter
         # solver library
         self.lib = lib
+        # target to run computations: CPU or GPU
+        self.target = target
         # plotting var
         self.doplot = doplot
         # cell length in x
@@ -409,7 +422,7 @@ class TFPA_MiniApp:
         self.afilename = afilename
         self.bfilename = bfilename
 
-    def setupBCs(self, save=0, comm=None):
+    def setupBCs(self, comm=None):
         # Place an injection well at the origin and
         # production wells at the points (p/m1,p/m1) and
         # specify no-flow conditions at the boundaries.
@@ -433,26 +446,24 @@ class TFPA_MiniApp:
                 Bpetsc.setUp()
                 Bpetsc.assemblyBegin()
                 Bpetsc.assemblyEnd()
-                if (save):
-                    if (rank == 0):
-                        print("Saving {0}".format(self.bfilename))
-                    viewer = petsc4py.PETSc.Viewer().\
-                        createBinary(self.bfilename, 'w')
-                    viewer(Bpetsc)
-                    if (rank == 0):
-                        print("Done")
+                if (rank == 0):
+                    print("Saving {0}".format(self.bfilename))
+                viewer = petsc4py.PETSc.Viewer().\
+                    createBinary(self.bfilename, 'w')
+                viewer(Bpetsc)
+                if (rank == 0):
+                    print("Done")
             else:
                 #matrices = read_write_matrices()
                 self.q = np.zeros(int(self.N))
                 self.q[0] = 1.0
                 self.q[self.N-1] = -1.0
-                if (save):
-                    if (self.writerType == 'BIN'):
-                        B = sp.sparse.csr_matrix(self.q)
-                        self.save_sparse_csr_bin(self.bfilename, B)
-                    elif (self.writerType == 'CSR'):
-                        B = sp.sparse.csr_matrix(self.q)
-                        self.save_sparse_csr(self.bfilename, B)
+                if (self.writerType == 'BIN'):
+                    B = sp.sparse.csr_matrix(self.q)
+                    self.save_sparse_csr_bin(self.bfilename, B)
+                elif (self.writerType == 'CSR'):
+                    B = sp.sparse.csr_matrix(self.q)
+                    self.save_sparse_csr(self.bfilename, B)
 
     def setupHomogPermeability(self):
         # Homogeneous permeability matrix:
@@ -519,7 +530,7 @@ class TFPA_MiniApp:
         if (self.isWrite == 'True'):
             if (self.lib == 'PETSC'):
                 rank = comm.rank
-                Apetsc = petsc4py.PETSc.Mat().create(PETSc.COMM_WORLD)
+                Apetsc = petsc4py.PETSc.Mat().create(comm=comm)
                 nrows, nrows = self.A.shape
                 Apetsc.setSizes([nrows, nrows])
                 Apetsc.setFromOptions()
@@ -582,15 +593,20 @@ class TFPA_MiniApp:
         data1 = np.log10(np.squeeze(self.K[0, :, :, zmid+1]))
         data2 = np.squeeze(self.P[:, :, zmid+1].T)
         # Plot logarithm of the permeability
-        im0 = ax0.imshow(data1, aspect=1.0, cmap=cm.jet, extent=[0, self.H, self.H, 0])
+        im0 = ax0.imshow(data1, aspect=1.0, cmap=cm.jet,
+                         extent=[0, self.H, self.H, 0])
         # Plot the pressure
-        im1 = ax1.imshow(data2, aspect=1.0, cmap=cm.jet, extent=[0, self.H, self.H, 0])
+        im1 = ax1.imshow(data2, aspect=1.0, cmap=cm.jet,
+                         extent=[0, self.H, self.H, 0])
         divider0 = make_axes_locatable(ax0)
         cax0 = divider0.append_axes("right", size="10%", pad=0.05)
         # Create colorbar in the appended axes
         # Tick locations can be set with the kwarg `ticks`
         # and the format of the ticklabels with kwarg `format`
-        cbar0 = plt.colorbar(im0, cax=cax0, ticks=MultipleLocator(0.2), format="%.2f")
+        cbar0 = plt.colorbar(im0,
+                             cax=cax0,
+                             ticks=MultipleLocator(0.2),
+                             format="%.2f")
         tick_locator = ticker.MaxNLocator(nbins=10)
         cbar0.locator = tick_locator
         cbar0.update_ticks()
@@ -599,7 +615,10 @@ class TFPA_MiniApp:
         # Create colorbar in the appended axes
         # Tick locations can be set with the kwarg `ticks`
         # and the format of the ticklabels with kwarg `format`
-        cbar1 = plt.colorbar(im1, cax=cax1, ticks=MultipleLocator(0.2), format="%.2f")
+        cbar1 = plt.colorbar(im1,
+                             cax=cax1,
+                             ticks=MultipleLocator(0.2),
+                             format="%.2f")
         tick_locator = ticker.MaxNLocator(nbins=10)
         cbar1.locator = tick_locator
         cbar1.update_ticks()
@@ -628,9 +647,9 @@ if __name__ == '__main__':
 
     # Required  argument if not in test mode
    # Required  argument if not in test mode
-    group.add_argument('-s', '--solve_mode', nargs=11,
+    group.add_argument('-s', '--solve_mode', nargs=12,
                        help='Solve mode: H, Nx, Ny, Nz, num, atol, rtol, \
-                       divtol, maxiter, lib, drawplot')
+                       divtol, maxiter, lib, target, drawplot')
 
     # Required  argument if not in test mode
     parser.add_argument('-r', '--read_mode', nargs=4,
@@ -646,35 +665,39 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--test_mode', nargs=1,
                         help='test mode: lib')
     # Parse args
-    args = parser.parse_args()
-
+    #args = parser.parse_args()
+    args, extra = parser.parse_known_args()
     # Run in test mode if there is only one command line args given:
     #print(len(sys.argv))
-    #comm = petsc4py.PETSc.COMM_WORLD
-    comm = PETSc.COMM_WORLD
-    rank = comm.getRank()
+    #comm = PETSc.COMM_WORLD
+    #rank = comm.getRank()
+    #comm = MPI.COMM_WORLD
+    #rank = comm.rank
     if (args.test_mode):
         message = ('Argument to test mode requires a valid library name')
         if len(args.test_mode) == 1:
             try:
                 lib = args.test_mode[0]
                 if (lib == 'PETSC'):
-                    petsc4py.init(sys.argv)
+                    petsc4py.init(extra)
+                    #uncomment below
+                    from petsc4py import PETSc
+                    comm = PETSc.COMM_SELF
             except ValueError:
                 raise parser.error(message)
         else:
             raise parser.error(message)
         print("Running in test mode with lib " + str(lib) + "\n")
         data = TFPA_MiniApp(1.0, 5, 5, 5, 0, 1e-15, 1e-06,
-                            1e+08, 1000, lib, 'N')
-        data.setupBCs(save=0, comm=PETSc.COMM_SELF)
+                            1e+08, 1000, lib, 'CPU', 'N')
+        data.setupBCs(comm=comm)
         data.setupHomogPermeability()
         data.setupMatrices()
-        data.testMode(comm=PETSc.COMM_SELF)
+        data.testMode(comm=comm)
     elif (args.solve_mode):
-        if len(args.solve_mode) == 11:
-            #comm = MPI.COMM_WORLD
-            #rank = comm.rank
+        if len(args.solve_mode) == 12:
+            comm = MPI.COMM_WORLD
+            rank = comm.rank
             message = ''
             try:
                 H = float(args.solve_mode[0])
@@ -732,17 +755,30 @@ if __name__ == '__main__':
                            'should be KINSOL, PARALUTION, PETSC, DEFAULT')
                 raise parser.error(message)
             try:
-                doplot = args.solve_mode[10]
+                target = args.solve_mode[10]
             except ValueError:
-                message = ('11th argument to write mode, doplot, '
+                message = ('11th argument to write mode, target, '
+                           'should be either CPU or GPU')
+                raise parser.error(message)
+            try:
+                doplot = args.solve_mode[11]
+            except ValueError:
+                message = ('12th argument to write mode, doplot, '
                            'should be either Y or N')
                 raise parser.error(message)
-            if (lib == 'PETSC' and rank == 0):
-                print("Initializing PETSC ...")
-                petsc4py.init(sys.argv)
+            #if (lib == 'PETSC' and rank == 0):
+            if (lib == 'PETSC'):
+                if (rank == 0):
+                    print("Initializing PETSC ...")
+                petsc4py.init(extra)
+                #petsc4py.init(sys.argv)
+                #print("Extra {0}".format(extra))
+                from petsc4py import PETSc
+                #comm = PETSc.COMM_WORLD
+                #rank = comm.getRank()
             if(args.read_mode):
-                comm = MPI.COMM_WORLD
-                rank = comm.rank
+                #comm = MPI.COMM_WORLD
+                #rank = comm.rank
                 start_brutto = MPI.Wtime()
                 if (rank == 0):
                     #message = ('')
@@ -775,7 +811,7 @@ if __name__ == '__main__':
                     data = TFPA_MiniApp(H, Nx, Ny, Nz,
                                         num, atol, rtol,
                                         divtol, maxiter,
-                                        lib, doplot)
+                                        lib, target, doplot)
                     data.setupReader(readerType, afilename, bfilename,
                                      xfilename)
                 else:
@@ -793,7 +829,7 @@ if __name__ == '__main__':
                        data.doplot.startswith("y")):
                             data.plot()
             if(args.write_mode):
-                comm = MPI.COMM_WORLD
+                #comm = MPI.COMM_WORLD
                 if (rank == 0):
                     #comm=MPI.COMM_SELF
                     #message = ('')
@@ -819,18 +855,18 @@ if __name__ == '__main__':
                         raise parser.error(message)
                     data = TFPA_MiniApp(H, Nx, Ny, Nz, num, atol,
                                         rtol, divtol, maxiter,
-                                        lib, doplot)
+                                        lib, target, doplot)
                     print("setupWriter {0} {1}".format(afilename, bfilename))
                     data.setupWriter(writerType, afilename, bfilename)
                     print("setupPermeability")
                     data.setupPermeability()
                     print("setupMatrices")
-                    data.setupMatrices(comm=PETSc.COMM_WORLD)
+                    data.setupMatrices(comm=comm)
                 else:
                     data = None
                 data = comm.bcast(data, root=0)
-                data.saveAMatrix(comm=PETSc.COMM_WORLD)
-                data.setupBCs(save=1, comm=comm)
+                data.saveAMatrix(comm=comm)
+                data.setupBCs(comm=comm)
     else:
         print("ERROR: This MiniApp expects the following variables to be given"
               'in this order:\n # Running mode (-s),  Length of domain, H\n '
