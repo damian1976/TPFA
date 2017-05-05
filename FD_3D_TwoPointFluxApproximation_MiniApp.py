@@ -534,7 +534,7 @@ class TFPA_MiniApp:
         self.A_nrows, self.A_ncols = self.A.shape
         print(self.A.shape)
         self.A = self.A.tocsr()
-        self.A[0, 0] = self.A[0, 0]+np.sum(self.K[:, 0, 0, 0])        
+        self.A[0, 0] = self.A[0, 0]+np.sum(self.K[:, 0, 0, 0])
         print((self.A.indptr))
         print((self.A.indices))
         print((self.A.data))
