@@ -148,31 +148,41 @@ def getSolution(self, comm=None):
             #decide = petsc4py.PETSc.DECIDE
             rank = comm.rank
             #size = comm.size
-            if (rank == 0):
-                print("USING PETSC SOLVER LIB")
-                print("Loading matrix {0}".format(self.afilename))
-            viewer = petsc4py.PETSc.Viewer().createBinary(self.afilename, 'r')
-            if (self.target == 'CPU'):
-                A = petsc4py.PETSc.Mat().load(viewer)
-            elif (self.target == 'GPU'):
-                # A = petsc4py.PETSc.Mat().load(viewer).\
-                # setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
-                # viewer = petsc4py.PETSc.Viewer().\
-                #    createBinary(self.afilename, 'r')
-                A = PETSc.Mat().create(comm=comm)
-                A.setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
-                A.load(viewer)
-            cols, rows = A.getSize()
-            if (rank == 0):
-                print("Size={0}x{1}".format(rows, cols))
-                print("Loading vector {0}".format(self.bfilename))
-            viewer = petsc4py.PETSc.Viewer().createBinary(self.bfilename, 'r')
-            if (self.target == 'CPU'):
-                b = petsc4py.PETSc.Vec().load(viewer)
-            elif (self.target == 'GPU'):
-                b = PETSc.Vec().create(comm=comm)
-                b.setType(PETSc.Vec.Type.MPICUSP)
-                b.load(viewer)
+            if (self.mode == 'comp'):
+                if (rank == 0):
+                    print("USING PETSC SOLVER LIB")
+                    print("Loading matrix {0}".format(self.afilename))
+                viewer = petsc4py.PETSc.Viewer().\
+                    createBinary(self.afilename, 'r')
+                if (self.target == 'CPU'):
+                    A = petsc4py.PETSc.Mat().load(viewer)
+                elif (self.target == 'GPU'):
+                    # A = petsc4py.PETSc.Mat().load(viewer).\
+                    # setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
+                    # viewer = petsc4py.PETSc.Viewer().\
+                    #    createBinary(self.afilename, 'r')
+                    A = PETSc.Mat().create(comm=comm)
+                    A.setType(PETSc.Mat.Type.MPIAIJCUSPARSE)
+                    A.load(viewer)
+                cols, rows = A.getSize()
+                if (rank == 0):
+                    print("Size={0}x{1}".format(rows, cols))
+                    print("Loading vector {0}".format(self.bfilename))
+                viewer = petsc4py.PETSc.Viewer().\
+                    createBinary(self.bfilename, 'r')
+                if (self.target == 'CPU'):
+                    b = petsc4py.PETSc.Vec().load(viewer)
+                elif (self.target == 'GPU'):
+                    b = PETSc.Vec().create(comm=comm)
+                    b.setType(PETSc.Vec.Type.MPICUSP)
+                    b.load(viewer)
+            else:
+                A = PETSc.Mat().createAIJ(size=self.A.shape,
+                                          csr=(self.A.indptr,
+                                               self.A.indices,
+                                               self.A.data),
+                                          comm=PETSc.COMM_SELF)
+                b = PETSc.Vec().createWithArray(self.q, comm=PETSc.COMM_SELF)
             if rank == 0:
                 print("Creating vector x...")
             x = b.duplicate()
@@ -199,15 +209,16 @@ def getSolution(self, comm=None):
             # Solve!
             try:
                 if (rank == 0):
-                    print("solve")
+                    print("Solving...")
                 ksp.solve(b, x)
+                if (self.mode == 'comp'):
+                    if (rank == 0):
+                        print("Saving results {0}".format(self.xfilename))
+                    viewer = petsc4py.PETSc.Viewer().\
+                        createBinary(self.xfilename, 'w')
+                    viewer(x)
                 if (rank == 0):
-                    print("Saving results {0}".format(self.xfilename))
-                viewer = petsc4py.PETSc.Viewer().\
-                    createBinary(self.xfilename, 'w')
-                viewer(x)
-                if (rank == 0):
-                    print("po solve")
+                    print("Solved...")
                 p = x.getArray()
                 end_netto = MPI.Wtime()
                 if (rank == 0):
@@ -318,7 +329,7 @@ class TFPA_MiniApp:
 
     """
     def __init__(self, H, Nx, Ny, Nz, num, atol, rtol,
-                 divtol, maxits, lib, target, doplot):
+                 divtol, maxiter, lib, target, doplot, mode):
         """
 
         :return:
@@ -359,6 +370,8 @@ class TFPA_MiniApp:
         self.isRead = "False"
         # set isWrite to false
         self.isWrite = "False"
+        #mode
+        self.mode = mode
         # set matrices object
         self.matrices = read_write_matrices()
         # set up the MATLAB matrix to run in test mode
@@ -432,8 +445,8 @@ class TFPA_MiniApp:
         self.q[0] = 1.0
         self.q[self.N-1] = -1.0
         '''
-        if (self.isWrite == 'True'):
-            if (self.lib == 'PETSC'):
+        if (self.isWrite == 'True' or self.mode == 'test'):
+            if (self.lib == 'PETSC' and self.mode == 'comp'):
                 Bpetsc = petsc4py.PETSc.Vec().createMPI(self.N, comm=comm)
                 rstart, rend = Bpetsc.getOwnershipRange()
                 for I in range(rstart, rend):
@@ -458,12 +471,13 @@ class TFPA_MiniApp:
                 self.q = np.zeros(int(self.N))
                 self.q[0] = 1.0
                 self.q[self.N-1] = -1.0
-                if (self.writerType == 'BIN'):
-                    B = sp.sparse.csr_matrix(self.q)
-                    self.save_sparse_csr_bin(self.bfilename, B)
-                elif (self.writerType == 'CSR'):
-                    B = sp.sparse.csr_matrix(self.q)
-                    self.save_sparse_csr(self.bfilename, B)
+                if (self.mode == 'comp'):
+                    if (self.writerType == 'BIN'):
+                        B = sp.sparse.csr_matrix(self.q)
+                        self.save_sparse_csr_bin(self.bfilename, B)
+                    elif (self.writerType == 'CSR'):
+                        B = sp.sparse.csr_matrix(self.q)
+                        self.save_sparse_csr(self.bfilename, B)
 
     def setupHomogPermeability(self):
         # Homogeneous permeability matrix:
@@ -520,7 +534,7 @@ class TFPA_MiniApp:
         self.A_nrows, self.A_ncols = self.A.shape
         print(self.A.shape)
         self.A = self.A.tocsr()
-        self.A[0, 0] = self.A[0, 0]+np.sum(self.K[:, 0, 0, 0])
+        self.A[0, 0] = self.A[0, 0]+np.sum(self.K[:, 0, 0, 0])        
         print((self.A.indptr))
         print((self.A.indices))
         print((self.A.data))
@@ -643,7 +657,7 @@ if __name__ == '__main__':
         file name of B matrix\n")
 
     # Add a mutually exclusive group: solve_mode, test_mode
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group()
 
     # Required  argument if not in test mode
    # Required  argument if not in test mode
@@ -689,7 +703,7 @@ if __name__ == '__main__':
             raise parser.error(message)
         print("Running in test mode with lib " + str(lib) + "\n")
         data = TFPA_MiniApp(1.0, 5, 5, 5, 0, 1e-15, 1e-06,
-                            1e+08, 1000, lib, 'CPU', 'N')
+                            1e+08, 1000, lib, 'CPU', 'N', 'test')
         data.setupBCs(comm=comm)
         data.setupHomogPermeability()
         data.setupMatrices()
@@ -811,7 +825,7 @@ if __name__ == '__main__':
                     data = TFPA_MiniApp(H, Nx, Ny, Nz,
                                         num, atol, rtol,
                                         divtol, maxiter,
-                                        lib, target, doplot)
+                                        lib, target, doplot, 'comp')
                     data.setupReader(readerType, afilename, bfilename,
                                      xfilename)
                 else:
@@ -855,7 +869,7 @@ if __name__ == '__main__':
                         raise parser.error(message)
                     data = TFPA_MiniApp(H, Nx, Ny, Nz, num, atol,
                                         rtol, divtol, maxiter,
-                                        lib, target, doplot)
+                                        lib, target, doplot, 'comp')
                     print("setupWriter {0} {1}".format(afilename, bfilename))
                     data.setupWriter(writerType, afilename, bfilename)
                     print("setupPermeability")
