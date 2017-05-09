@@ -292,8 +292,7 @@ def getSolution(self, comm=None):
             break
         if case():  # default, could also just omit condition or 'if True'
             print("USING PYTHON DEFAULT SPSOLVE")
-            try:
-                print('AAA')
+            try:                
                 self.load()
                 print(self.A)
                 p = spsolve(self.A, self.q)
