@@ -768,11 +768,13 @@ if __name__ == '__main__':
                 message = ('10th argument to write mode, lib, '
                            'should be KINSOL, PARALUTION, PETSC, DEFAULT')
                 raise parser.error(message)
+            message = ('11th argument to write mode, target, '
+                       'should be either CPU or GPU')
             try:
                 target = args.solve_mode[10]
             except ValueError:
-                message = ('11th argument to write mode, target, '
-                           'should be either CPU or GPU')
+                raise parser.error(message)
+            if (target != 'CPU' and target != 'GPU'):
                 raise parser.error(message)
             try:
                 doplot = args.solve_mode[11]
