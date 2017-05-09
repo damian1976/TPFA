@@ -236,20 +236,12 @@ def getSolution(self, comm=None):
             from pykinsol import solve as KINsolve
             print("USING KINSOL SOLVER LIB")
             try:
-                if (self.readerType == 'BIN'):
-                    A = self.matrices.load_sparse_csr_bin(self.afilename)
-                    q = self.matrices.load_sparse_csr_bin(self.bfilename)
-                    q = q.todense()
-                    q = np.squeeze(np.asarray(q))
-                elif (self.readerType == 'CSR'):
-                    A = self.matrices.load_sparse_csr(self.afilename)
-                    q = self.matrices.load_sparse_csr(self.bfilename)
-                    q = q.todense()
-                    q = np.squeeze(np.asarray(q))
+                self.load()
                 #A & q here should be function instead of  matrix & vector
-                result = KINsolve(A, q, np.zeros, self.N)
+                result = KINsolve(self.A, self.q, np.zeros, self.N)
                 assert result['success']
                 p = result['x']
+                self.save(p)
             except:
                 print("Unexpected error:", sys.exc_info()[0])
                 print("KINSOL- didn't complete\n")
@@ -258,21 +250,13 @@ def getSolution(self, comm=None):
             print("USING PYGMRES SOLVER LIB")
             counter = gmres_counter()
             try:
-                if (self.readerType == 'BIN'):
-                    A = self.matrices.load_sparse_csr_bin(self.afilename)
-                    q = self.matrices.load_sparse_csr_bin(self.bfilename)
-                    q = q.todense()
-                    q = np.squeeze(np.asarray(q))
-                elif (self.readerType == 'CSR'):
-                    A = self.matrices.load_sparse_csr(self.afilename)
-                    q = self.matrices.load_sparse_csr(self.bfilename)
-                    q = q.todense()
-                    q = np.squeeze(np.asarray(q))
+                self.load()
                 #pdb.set_trace()
-                p, info = gmres(A, q,
+                p, info = gmres(self.A, self.q,
                                 tol=atol,
                                 maxiter=maxiter,
                                 callback=counter)
+                self.save(p)
                 print("No. of steps: " + str(counter.niter))
             except:
                 print("PYGMRES- didn't complete\n")
@@ -284,19 +268,10 @@ def getSolution(self, comm=None):
         if case('PARALUTION'):
             print("USING PARALUTION SOLVER LIB")
             try:
-                if (self.readerType == 'BIN'):
-                    A = self.matrices.load_sparse_csr_bin(self.afilename)
-                    q = self.matrices.load_sparse_csr_bin(self.bfilename)
-                    q = q.todense()
-                    q = np.squeeze(np.asarray(q))
-                elif (self.readerType == 'CSR'):
-                    A = self.matrices.load_sparse_csr(self.afilename)
-                    q = self.matrices.load_sparse_csr(self.bfilename)
-                    q = q.todense()
-                    q = np.squeeze(np.asarray(q))
-                A_row_offsets = np.asarray(A.indptr, dtype=np.intc)
-                A_col = np.asarray(A.indices, dtype=np.intc)
-                A_val = np.asarray(A.data, dtype=np.float64)
+                self.load()
+                A_row_offsets = np.asarray(self.A.indptr, dtype=np.intc)
+                A_col = np.asarray(self.A.indices, dtype=np.intc)
+                A_val = np.asarray(self.A.data, dtype=np.float64)
                 array_1d_double = npct.ndpointer(dtype=np.float64,
                                                  ndim=1,
                                                  flags='CONTIGUOUS')
@@ -311,13 +286,19 @@ def getSolution(self, comm=None):
                 #pdb.set_trace()
                 libp.gmres_paralution(A_row_offsets, len(A_row_offsets), A_col, len(A_col), A_val, len(A_val), q, len(q), nrows, ncols, nnz, nrows, p)
                 print(p)
+                self.save(p)
             except:
                 print("PARALUTION- didn't complete\n")
             break
         if case():  # default, could also just omit condition or 'if True'
             print("USING PYTHON DEFAULT SPSOLVE")
             try:
-                p = spsolve(A, q)
+                print('AAA')
+                self.load()
+                print(self.A)
+                p = spsolve(self.A, self.q)
+                print(p)
+                self.save(p)
             except:
                 print("Default- didn't complete\n")
     # return p
@@ -435,6 +416,28 @@ class TFPA_MiniApp:
         self.afilename = afilename
         self.bfilename = bfilename
 
+    def load(self):
+        if (self.mode == 'comp'):
+            if (self.readerType == 'BIN'):
+                self.A = self.matrices.load_sparse_csr_bin(self.afilename)
+                self.q = self.matrices.load_sparse_csr_bin(self.bfilename)
+                self.q = self.q.todense()
+                self.q = np.squeeze(np.asarray(self.q))
+            elif (self.readerType == 'CSR'):
+                self.A = self.matrices.load_sparse_csr(self.afilename)
+                self.q = self.matrices.load_sparse_csr(self.bfilename)
+                self.q = self.q.todense()
+                self.q = np.squeeze(np.asarray(self.q))
+
+    def save(self, p):
+        if (self.mode == 'comp'):
+            if (self.readerType == 'BIN'):
+                P = sp.sparse.csr_matrix(p)
+                self.matrices.save_sparse_csr_bin(self.xfilename, P)
+            elif (self.readerType == 'CSR'):
+                P = sp.sparse.csr_matrix(p)
+                self.matrices.save_sparse_csr(self.xfilename, P)
+
     def setupBCs(self, comm=None):
         # Place an injection well at the origin and
         # production wells at the points (p/m1,p/m1) and
@@ -474,10 +477,10 @@ class TFPA_MiniApp:
                 if (self.mode == 'comp'):
                     if (self.writerType == 'BIN'):
                         B = sp.sparse.csr_matrix(self.q)
-                        self.save_sparse_csr_bin(self.bfilename, B)
+                        self.matrices.save_sparse_csr_bin(self.bfilename, B)
                     elif (self.writerType == 'CSR'):
                         B = sp.sparse.csr_matrix(self.q)
-                        self.save_sparse_csr(self.bfilename, B)
+                        self.matrices.save_sparse_csr(self.bfilename, B)
 
     def setupHomogPermeability(self):
         # Homogeneous permeability matrix:
@@ -572,9 +575,9 @@ class TFPA_MiniApp:
             else:
                 #matrices = read_write_matrices()
                 if (self.writerType == 'BIN'):
-                    self.save_sparse_csr_bin(self.AWfilename, self.A)
+                    self.matrices.save_sparse_csr_bin(self.afilename, self.A)
                 elif (self.writerType == 'CSR'):
-                    self.save_sparse_csr(self.AWfilename, self.A)
+                    self.matrices.save_sparse_csr(self.afilename, self.A)
 
     def solve(self, comm=None):
         # Solve linear system and extract interface fluxes.
@@ -697,6 +700,8 @@ if __name__ == '__main__':
                     #uncomment below
                     from petsc4py import PETSc
                     comm = PETSc.COMM_SELF
+                else:
+                    comm = MPI.COMM_SELF
             except ValueError:
                 raise parser.error(message)
         else:
